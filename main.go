@@ -4,11 +4,10 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"gopkg.in/yaml.v3"
 	"os"
 	"strings"
 	"unicode"
-
-	"gopkg.in/yaml.v3"
 )
 
 var VERSION = "UNKNOWN"
@@ -147,47 +146,27 @@ func loadVariables() ([]VariableSpec, error) {
 		fmt.Println("Loading Variables from:", variablesFile)
 	}
 
+	var variables VariablesDefinition
+	file, err := os.Open(variablesFile)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
 	if strings.HasSuffix(variablesFile, ".json") {
-		return loadVariablesFromJson()
+		err = json.NewDecoder(file).Decode(&variables)
 	} else if strings.HasSuffix(variablesFile, ".yaml") || strings.HasSuffix(variablesFile, ".yml") {
-		return loadVariablesFromYaml()
+		err = yaml.NewDecoder(file).Decode(&variables)
 	} else {
 		return nil, fmt.Errorf("unsupported file type: %s", variablesFile)
 	}
-}
 
-func loadVariablesFromJson() ([]VariableSpec, error) {
-	// unmarshall json file into a VariableSpec array
-	var variables VariablesDefinition
-	file, err := os.Open(variablesFile)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	err = json.NewDecoder(file).Decode(&variables)
 	if err != nil {
 		return nil, err
 	}
 
 	return variables.Variables, nil
-}
 
-func loadVariablesFromYaml() ([]VariableSpec, error) {
-	// Unmarshall yaml file into a VariableSpec array
-	var variables VariablesDefinition
-	file, err := os.Open(variablesFile)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	err = yaml.NewDecoder(file).Decode(&variables)
-	if err != nil {
-		return nil, err
-	}
-
-	return variables.Variables, nil
 }
 
 func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
