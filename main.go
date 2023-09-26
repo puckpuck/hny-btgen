@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"strings"
 	"unicode"
+
+	"gopkg.in/yaml.v3"
 )
 
 var VERSION = "UNKNOWN"
@@ -15,6 +18,7 @@ var (
 	boardId         string
 	graphic         = 1
 	sequenceNumber  = 99999
+	variablesFile   string
 	outputFile      string
 	printVersion    = false
 )
@@ -32,13 +36,23 @@ func main() {
 		os.Exit(0)
 	}
 
-	b, err := loadHoneycombBoard()
+	bt, err := convertHoneycombBoardToTemplate()
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(2)
 	}
 
-	tpl, err := generateBoardTemplate(b)
+	if variablesFile != "" {
+		variables, err := loadVariables()
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(3)
+		}
+
+		bt.Variables = variables
+	}
+
+	tpl, err := generateTemplateGoCode(bt)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(3)
@@ -67,7 +81,7 @@ func main() {
 	}
 }
 
-func loadHoneycombBoard() (*HoneycombBoardWithDetails, error) {
+func convertHoneycombBoardToTemplate() (*BoardTemplate, error) {
 
 	if outputFile != "" {
 		fmt.Println("Loading Honeycomb Board:", boardId)
@@ -80,37 +94,109 @@ func loadHoneycombBoard() (*HoneycombBoardWithDetails, error) {
 		return nil, err
 	}
 
-	queries := make([]HoneycombQuery, 0, len(board.Queries))
-	queryAnnotations := make([]HoneycombQueryAnnotation, 0, len(board.Queries))
+	queryTemplates := make([]QueryTemplate, 0, len(board.Queries))
 	for _, q := range board.Queries {
 		query, err := hnyClient.GetQuery(q.Dataset, q.QueryId)
 		if err != nil {
 			return nil, err
 		}
-		queries = append(queries, *query)
 
 		queryAnnotation, err := hnyClient.GetQueryAnnotation(q.Dataset, q.QueryAnnotationId)
 		if err != nil {
 			return nil, err
 		}
-		queryAnnotations = append(queryAnnotations, *queryAnnotation)
+
+		queryTemplate := QueryTemplate{
+			Name:             queryAnnotation.Name,
+			ShortDescription: q.Caption,
+			Description:      queryAnnotation.Description,
+			Style:            q.QueryStyle,
+			GraphSettings:    q.GraphSettings,
+			QuerySpec: QuerySpec{
+				Id:                        query.Id,
+				StartTime:                 query.StartTime,
+				EndTime:                   query.EndTime,
+				DesiredGranularitySeconds: query.Granularity,
+				Aggregates:                query.Calculations,
+				FilterSet: &QueryFilterSet{
+					Combination: query.FilterCombination,
+					Filters:     query.Filters,
+				},
+				Groups:  query.Breakdowns,
+				Orders:  query.Orders,
+				Limit:   query.Limit,
+				Havings: query.Havings,
+			},
+		}
+
+		queryTemplates = append(queryTemplates, queryTemplate)
 	}
 
-	return &HoneycombBoardWithDetails{
-		Board:            board,
-		Queries:          queries,
-		QueryAnnotations: queryAnnotations,
+	return &BoardTemplate{
+		PK:             fmt.Sprint(sequenceNumber),
+		Name:           board.Name,
+		Description:    board.Description,
+		Graphic:        graphic,
+		ColumnStyle:    board.ColumnLayout,
+		QueryTemplates: queryTemplates,
 	}, nil
-
 }
 
-func generateBoardTemplate(b *HoneycombBoardWithDetails) (string, error) {
-
+func loadVariables() ([]VariableSpec, error) {
 	if outputFile != "" {
-		fmt.Println("Generating Board Template")
+		fmt.Println("Loading Variables from:", variablesFile)
 	}
 
-	codeName := firstLetterToLower(strings.ReplaceAll(b.Board.Name, " ", ""))
+	if strings.HasSuffix(variablesFile, ".json") {
+		return loadVariablesFromJson()
+	} else if strings.HasSuffix(variablesFile, ".yaml") || strings.HasSuffix(variablesFile, ".yml") {
+		return loadVariablesFromYaml()
+	} else {
+		return nil, fmt.Errorf("unsupported file type: %s", variablesFile)
+	}
+}
+
+func loadVariablesFromJson() ([]VariableSpec, error) {
+	// unmarshall json file into a VariableSpec array
+	var variables VariablesDefinition
+	file, err := os.Open(variablesFile)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	err = json.NewDecoder(file).Decode(&variables)
+	if err != nil {
+		return nil, err
+	}
+
+	return variables.Variables, nil
+}
+
+func loadVariablesFromYaml() ([]VariableSpec, error) {
+	// Unmarshall yaml file into a VariableSpec array
+	var variables VariablesDefinition
+	file, err := os.Open(variablesFile)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	err = yaml.NewDecoder(file).Decode(&variables)
+	if err != nil {
+		return nil, err
+	}
+
+	return variables.Variables, nil
+}
+
+func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
+
+	if outputFile != "" {
+		fmt.Println("Generating Template Go Code")
+	}
+
+	codeName := firstLetterToLower(strings.ReplaceAll(bt.Name, " ", ""))
 
 	tpl := ""
 
@@ -123,57 +209,148 @@ func generateBoardTemplate(b *HoneycombBoardWithDetails) (string, error) {
 	tpl += "\n"
 
 	tpl += "func " + codeName + "BoardTemplate() BoardTemplate {\n"
-	tpl += "\tqueryTemplates := []QueryTemplate{}\n"
+	tpl += "\tqueryTemplates := make([]QueryTemplate, 0, " + fmt.Sprint(len(bt.QueryTemplates)) + ")\n"
 	tpl += "\n"
 
-	for i, bq := range b.Board.Queries {
-		qs := fmt.Sprint("qs", i+1)
-		tpl += "\t" + qs + " := api.QuerySpec{\n"
-		tpl += "\t\tAggregates: []*api.QuerySpec_Aggregate{\n"
-		for _, c := range b.Queries[i].Calculations {
-			tpl += "\t\t\t{Op: api.AggregateOp_" + c.Op + ", Column: \"" + c.Column + "\"},\n"
+	for i, qt := range bt.QueryTemplates {
+		// QuerySpec
+		tpl += "\tqs" + fmt.Sprint(i+1) + " := api.QuerySpec{\n"
+
+		// QuerySpec Aggregates
+		if len(qt.QuerySpec.Aggregates) > 0 {
+			tpl += "\t\tAggregates: []*api.QuerySpec_Aggregate{\n"
+			for _, a := range qt.QuerySpec.Aggregates {
+				tpl += "\t\t\t{\n"
+				tpl += "\t\t\t\tOp: api.AggregateOp_" + a.Op + ",\n"
+				tpl += "\t\t\t\tColumn: " + columnOrVariableName(a.Column, bt.Variables) + ",\n"
+				tpl += "\t\t\t},\n"
+			}
+			tpl += "\t\t},\n"
 		}
-		tpl += "\t\t},\n"
-		tpl += "\t\tGroups: []string{\n"
-		for _, g := range b.Queries[i].Breakdowns {
-			tpl += "\t\t\t\"" + g + "\",\n"
+
+		// QuerySpec FilterSet
+		if len(qt.QuerySpec.FilterSet.Filters) > 0 {
+			tpl += "\t\tFilterSet: &api.QuerySpec_FilterSet{\n"
+			tpl += "\t\t\tFilters: []*api.QuerySpec_Filter{\n"
+			for _, f := range qt.QuerySpec.FilterSet.Filters {
+				tpl += "\t\t\t\t{\n"
+				tpl += "\t\t\t\t\tOp: api.FilterOpFromString(\"" + f.Op + "\"),\n"
+				tpl += "\t\t\t\t\tColumn: " + columnOrVariableName(f.Column, bt.Variables) + ",\n"
+				tpl += "\t\t\t\t\tValue: \"" + fmt.Sprint(f.Value) + "\",\n"
+				tpl += "\t\t\t\t},\n"
+			}
+			tpl += "\t\t\t},\n"
+			if qt.QuerySpec.FilterSet.Combination != "" {
+				tpl += "\t\t\tCombination: api.FilterCombinationOp_" + qt.QuerySpec.FilterSet.Combination + ",\n"
+			}
+			tpl += "\t\t},\n"
 		}
-		tpl += "\t\t},\n"
+
+		// QuerySpec Groups
+		if len(qt.QuerySpec.Groups) > 0 {
+			tpl += "\t\tGroups: []string{\n"
+			for _, g := range qt.QuerySpec.Groups {
+				tpl += "\t\t\t" + columnOrVariableName(g, bt.Variables) + ",\n"
+			}
+			tpl += "\t\t},\n"
+		}
+
+		// QuerySpec Orders
+		if len(qt.QuerySpec.Orders) > 0 {
+			tpl += "\t\tOrders: []*api.QuerySpec_Order{\n"
+			for _, o := range qt.QuerySpec.Orders {
+				tpl += "\t\t\t{\n"
+				tpl += "\t\t\t\tColumn: " + columnOrVariableName(o.Column, bt.Variables) + ",\n"
+				tpl += "\t\t\t\tOp: api.AggregateOp_" + o.Op + ",\n"
+				if o.Order == "descending" {
+					tpl += "\t\t\t\tDescending: true,\n"
+				} else {
+					tpl += "\t\t\t\tDescending: false,\n"
+				}
+				tpl += "\t\t\t},\n"
+			}
+			tpl += "\t\t},\n"
+		}
+
+		// QuerySpec Limit
+		if qt.QuerySpec.Limit > 0 {
+			tpl += "\t\tLimit: " + fmt.Sprint(qt.QuerySpec.Limit) + ",\n"
+		}
+
+		// QuerySpec Havings
+		if len(qt.QuerySpec.Havings) > 0 {
+			tpl += "\t\tHavings: []*api.QuerySpec_Having{\n"
+			for _, h := range qt.QuerySpec.Havings {
+				tpl += "\t\t\t{\n"
+				tpl += "\t\t\t\tAggregateOp: api.AggregateOp_" + h.CalculateOp + ",\n"
+				tpl += "\t\t\t\tColumn: " + columnOrVariableName(h.Column, bt.Variables) + ",\n"
+				tpl += "\t\t\t\tOp: api.FilterOp_" + h.Op + ",\n"
+				tpl += "\t\t\t\tValue: \"" + fmt.Sprint(h.Value) + "\",\n"
+				tpl += "\t\t\t\tJoinColumn: \"" + h.JoinColumn + "\",\n"
+				tpl += "\t\t\t},\n"
+			}
+			tpl += "\t\t},\n"
+		}
+
+		// QuerySpec (close)
 		tpl += "\t}\n"
 
-		qt := fmt.Sprint("qt", i+1)
-		tpl += "\t" + qt + " := QueryTemplate{\n"
+		tpl += "\tqt" + fmt.Sprint(i+1) + " := QueryTemplate{\n"
 
-		tpl += "\t\tName: \"" + b.QueryAnnotations[i].Name + "\",\n"
-		tpl += "\t\tShortDescription: \"" + bq.Caption + "\",\n"
-		tpl += "\t\tDescription: \"" + b.QueryAnnotations[i].Description + "\",\n"
-		tpl += "\t\tQuerySpec: " + qs + ",\n"
-		tpl += "\t\tStyle: types.BoardQueryStyle" + firstLetterToUpper(bq.QueryStyle) + ",\n"
-		tpl += "\t\tGraphSettings: &types.GraphSettings{\n"
-		tpl += "\t\t\tOmitMissingValues: " + fmt.Sprint(bq.GraphSettings.OmitMissingValues) + ",\n"
-		tpl += "\t\t\tUseStackedGraphs: " + fmt.Sprint(bq.GraphSettings.StackedGraphs) + ",\n"
-		tpl += "\t\t\tUseLogScale: " + fmt.Sprint(bq.GraphSettings.LogScale) + ",\n"
-		tpl += "\t\t\tUseUTCAxis: " + fmt.Sprint(bq.GraphSettings.UtcAxis) + ",\n"
-		tpl += "\t\t\tHideMarkers: " + fmt.Sprint(bq.GraphSettings.HideMarkers) + ",\n"
-		tpl += "\t\t\tPreferOverlaidCharts: " + fmt.Sprint(bq.GraphSettings.OverlaidCharts) + ",\n"
+		tpl += "\t\tName: \"" + qt.Name + "\",\n"
+		tpl += "\t\tShortDescription: \"" + qt.ShortDescription + "\",\n"
+		tpl += "\t\tDescription: \"" + qt.Description + "\",\n"
+		tpl += "\t\tQuerySpec: qs" + fmt.Sprint(i+1) + ",\n"
+		tpl += "\t\tStyle: types.BoardQueryStyle" + firstLetterToUpper(qt.Style) + ",\n"
+		tpl += "\t\tGraphSettings: types.GraphSettings{\n"
+		tpl += "\t\t\tOmitMissingValues: " + fmt.Sprint(qt.GraphSettings.OmitMissingValues) + ",\n"
+		tpl += "\t\t\tUseStackedGraphs: " + fmt.Sprint(qt.GraphSettings.StackedGraphs) + ",\n"
+		tpl += "\t\t\tUseLogScale: " + fmt.Sprint(qt.GraphSettings.LogScale) + ",\n"
+		tpl += "\t\t\tUseUTCXAxis: " + fmt.Sprint(qt.GraphSettings.UTCXAxis) + ",\n"
+		tpl += "\t\t\tHideMarkers: " + fmt.Sprint(qt.GraphSettings.HideMarkers) + ",\n"
+		tpl += "\t\t\tPreferOverlaidCharts: " + fmt.Sprint(qt.GraphSettings.OverlaidCharts) + ",\n"
 		tpl += "\t\t},\n"
 		tpl += "\t\tAutoFilter: true,\n"
 		tpl += "\t}\n"
-		tpl += "\tqueryTemplates = append(queryTemplates, " + qt + ")\n"
+		tpl += "\tqueryTemplates = append(queryTemplates, qt" + fmt.Sprint(i+1) + ")\n"
 		tpl += "\n"
 	}
 
 	tpl += "\treturn BoardTemplate{\n"
-	tpl += "\t\tPK: ToBoardTemplatePK(" + fmt.Sprint(sequenceNumber) + "),\n"
-	tpl += "\t\tName: \"" + b.Board.Name + "\",\n"
-	tpl += "\t\tDescription: \"" + b.Board.Description + "\",\n"
-	tpl += "\t\tGraphic: " + fmt.Sprint(graphic) + ",\n"
+	tpl += "\t\tPK: ToBoardTemplatePK(" + bt.PK + "),\n"
+	tpl += "\t\tName: \"" + bt.Name + "\",\n"
+	tpl += "\t\tDescription: \"" + bt.Description + "\",\n"
+	tpl += "\t\tGraphic: " + fmt.Sprint(bt.Graphic) + ",\n"
 	tpl += "\t\tQueryTemplates: queryTemplates,\n"
 	tpl += "\t\tColumnStyle: types.BoardManyColumns,\n"
+	tpl += "\t\tVariables: []VariableSpec{\n"
+	for _, v := range bt.Variables {
+		tpl += "\t\t\t{\n"
+		tpl += "\t\t\t\tName: VariableName(\"" + v.Name + "\"),\n"
+		tpl += "\t\t\t\tValueProviders: []ValueProvider{\n"
+		for _, vp := range v.ValueProviders {
+			tpl += "\t\t\t\t\t{\n"
+			tpl += "\t\t\t\t\t\tKind: Column_" + vp.Kind + ",\n"
+			tpl += "\t\t\t\t\t\tValue: \"" + vp.Value + "\",\n"
+			tpl += "\t\t\t\t\t},\n"
+		}
+		tpl += "\t\t\t\t},\n"
+		tpl += "\t\t\t},\n"
+	}
+	tpl += "\t\t},\n"
 	tpl += "\t}\n"
 	tpl += "}\n"
 
 	return tpl, nil
+}
+
+func columnOrVariableName(column string, variables []VariableSpec) string {
+	for _, v := range variables {
+		if column == v.Name {
+			return "VariableName(\"" + column + "\")"
+		}
+	}
+	return "\"" + column + "\""
 }
 
 func firstLetterToLower(s string) string {
@@ -201,6 +378,7 @@ func firstLetterToUpper(s string) string {
 func validateOptions() error {
 	flag.StringVar(&honeycombApiKey, "honeycomb-api-key", lookupEnvOrString("HONEYCOMB_API_KEY", honeycombApiKey), "Honeycomb API Key")
 	flag.StringVar(&boardId, "board", "", "Honeycomb Board ID")
+	flag.StringVar(&variablesFile, "variables", "", "Variables definition file to use")
 	flag.StringVar(&outputFile, "out", "", "Output template fo file")
 	flag.IntVar(&graphic, "graphic", graphic, "Graphic # to use")
 	flag.IntVar(&sequenceNumber, "sequence-number", sequenceNumber, "Sequence number to use")
