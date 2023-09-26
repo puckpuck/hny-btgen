@@ -13,8 +13,8 @@ var VERSION = "UNKNOWN"
 var (
 	honeycombApiKey string
 	boardId         string
-	graphic         int
-	sequenceNumber  int
+	graphic         = 1
+	sequenceNumber  = 99999
 	printVersion    = false
 )
 
@@ -134,7 +134,7 @@ func generateBoardTemplate(b *HoneycombBoardWithDetails) (string, error) {
 	}
 
 	tpl += "\treturn BoardTemplate{\n"
-	tpl += "\t\tPK: ToBoardTemplatePK(" + fmt.Sprint(sequenceNumber) + ")\n"
+	tpl += "\t\tPK: ToBoardTemplatePK(" + fmt.Sprint(sequenceNumber) + "),\n"
 	tpl += "\t\tName: \"" + b.Board.Name + "\",\n"
 	tpl += "\t\tDescription: \"" + b.Board.Description + "\",\n"
 	tpl += "\t\tGraphic: " + fmt.Sprint(graphic) + ",\n"
@@ -169,12 +169,16 @@ func firstLetterToUpper(s string) string {
 }
 
 func validateOptions() error {
-	flag.StringVar(&honeycombApiKey, "honeycomb-api-key", LookupEnvOrString("HONEYCOMB_API_KEY", honeycombApiKey), "Honeycomb API Key")
+	flag.StringVar(&honeycombApiKey, "honeycomb-api-key", lookupEnvOrString("HONEYCOMB_API_KEY", honeycombApiKey), "Honeycomb API Key")
 	flag.StringVar(&boardId, "board", "", "Honeycomb Board ID")
-	flag.IntVar(&graphic, "graphic", 1, "Graphic # to use (default: 1)")
-	flag.IntVar(&sequenceNumber, "sequence-number", 99999, "Sequence number to use (default: 99999)")
+	flag.IntVar(&graphic, "graphic", graphic, "Graphic # to use")
+	flag.IntVar(&sequenceNumber, "sequence-number", sequenceNumber, "Sequence number to use")
 	flag.BoolVar(&printVersion, "version", false, "Print version")
 	flag.Parse()
+
+	if printVersion {
+		return nil
+	}
 
 	if honeycombApiKey == "" {
 		printUsage()
@@ -194,7 +198,7 @@ func printUsage() {
 	flag.PrintDefaults()
 }
 
-func LookupEnvOrString(key string, defaultVal string) string {
+func lookupEnvOrString(key string, defaultVal string) string {
 	if val, ok := os.LookupEnv(key); ok {
 		return val
 	}
