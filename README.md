@@ -12,7 +12,7 @@ make build
 ## Usage
 
 ```shell
-hny-otel-semantic --honeycomb-api-key <HONEYCOMB_API_KEY> --board <BOARD_ID> [options]
+hny-btgen --honeycomb-api-key <HONEYCOMB_API_KEY> --board <BOARD_ID> [options]
 ```
 
 ### Options
