@@ -25,6 +25,6 @@ or as an environment variable.
 |---------------------|----------------------|--------------------------------------------------------------|---------|
 | --honeycomb-api-key | HONEYCOMB_API_KEY    | Honeycomb API Key with permissions to update dataset columns | `nil`   |
 | --board             |                      | Honeycomb Board Id to use                                    | `nil`   |
-| --graphic           |                      | Graphic # to use for the board template                      | `nil`   |
-| --sequence-number   |                      | Sequence # to use for board template, needs to be unique     | `nil`   |
+| --graphic           |                      | Graphic # to use for the board template                      | `1`     |
+| --sequence-number   |                      | Sequence # to use for board template, needs to be unique     | `99999` |
 | --version           |                      | Display version information                                  | `false` |
