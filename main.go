@@ -15,6 +15,7 @@ var (
 	boardId         string
 	graphic         = 1
 	sequenceNumber  = 99999
+	outputFile      string
 	printVersion    = false
 )
 
@@ -43,10 +44,34 @@ func main() {
 		os.Exit(3)
 	}
 
-	fmt.Println(tpl)
+	if outputFile != "" {
+		fmt.Println("Writing template to:", outputFile)
+
+		f, err := os.Create(outputFile)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(4)
+		}
+
+		defer f.Close()
+
+		_, err = f.WriteString(tpl)
+		if err != nil {
+			fmt.Println(err)
+			os.Exit(5)
+		}
+
+		fmt.Println("Done")
+	} else {
+		fmt.Println(tpl)
+	}
 }
 
 func loadHoneycombBoard() (*HoneycombBoardWithDetails, error) {
+
+	if outputFile != "" {
+		fmt.Println("Loading Honeycomb Board:", boardId)
+	}
 
 	hnyClient := NewHoneycombClient(honeycombApiKey)
 
@@ -80,6 +105,11 @@ func loadHoneycombBoard() (*HoneycombBoardWithDetails, error) {
 }
 
 func generateBoardTemplate(b *HoneycombBoardWithDetails) (string, error) {
+
+	if outputFile != "" {
+		fmt.Println("Generating Board Template")
+	}
+
 	codeName := firstLetterToLower(strings.ReplaceAll(b.Board.Name, " ", ""))
 
 	tpl := ""
@@ -171,6 +201,7 @@ func firstLetterToUpper(s string) string {
 func validateOptions() error {
 	flag.StringVar(&honeycombApiKey, "honeycomb-api-key", lookupEnvOrString("HONEYCOMB_API_KEY", honeycombApiKey), "Honeycomb API Key")
 	flag.StringVar(&boardId, "board", "", "Honeycomb Board ID")
+	flag.StringVar(&outputFile, "out", "", "Output template fo file")
 	flag.IntVar(&graphic, "graphic", graphic, "Graphic # to use")
 	flag.IntVar(&sequenceNumber, "sequence-number", sequenceNumber, "Sequence number to use")
 	flag.BoolVar(&printVersion, "version", false, "Print version")
