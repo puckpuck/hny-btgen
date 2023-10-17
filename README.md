@@ -50,7 +50,7 @@ for the variables file.
   "variables": [
     {
       "name": "metrics.cpu.usage",
-      "providers": [
+      "valueProviders": [
         {
           "kind": "ExactMatch",
           "value": "metrics.cpu.usage"
@@ -62,15 +62,24 @@ for the variables file.
       ]
     },
     {
-      "name": "metrics.memory.utilization",
-      "providers": [
+      "name": "service.name",
+      "valueProviders": [
         {
-          "kind": "ExactMatch",
-          "value": "metrics.memory.utilization"
+          "kind": "SchemaMapping",
+          "value": "service_name"
         },
         {
           "kind": "ExactMatch",
-          "value": "metrics_memory_utilization"
+          "value": "service.name"
+        }
+      ]
+    },
+    {
+      "name": "dc_k8s.pod.uptime.log10",
+      "valueProviders": [
+        {
+          "kind": "AdHocDerivedColumn",
+          "value": "LOG10($k8s.pod.uptime)"
         }
       ]
     }
@@ -83,17 +92,21 @@ for the variables file.
 ```yaml
 variables:
   - name: metrics.cpu.usage
-    providers:
+    valueProviders:
       - kind: ExactMatch
         value: metrics.cpu.usage
       - kind: ExactMatch
         value: metrics_cpu_usage
-  - name: metrics.memory.utilization
-    providers:
+  - name: service.name
+    valueProviders:
+      - kind: SchemaMapping
+        value: service_name
       - kind: ExactMatch
-        value: metrics.memory.utilization
-      - kind: ExactMatch
-        value: metrics_memory_utilization
+        value: service.name
+  - name: dc_k8s.pod.uptime.log10
+    valueProviders:
+      - kind: AdHocDerivedColumn
+        value: LOG10($k8s.pod.uptime)
 ```
 
-The provider kind must be: `ExactMatch` or `SchemaMapping`
+The provider kind must be: `ExactMatch`, `SchemaMapping`, or `AdHocDerivedColumn`

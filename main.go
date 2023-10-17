@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
 	"strings"
 	"unicode"
+
+	"gopkg.in/yaml.v3"
 )
 
 var VERSION = "UNKNOWN"
@@ -169,6 +170,50 @@ func loadVariables() ([]VariableSpec, error) {
 
 }
 
+var (
+	filterOp_display = map[string]string{
+		"FilterOp_EQUAL":         "=",
+		"FilterOp_NOT_EQUAL":     "!=",
+		"FilterOp_GT":            ">",
+		"FilterOp_GTE":           ">=",
+		"FilterOp_LT":            "<",
+		"FilterOp_LTE":           "<=",
+		"FilterOp_PREFIX":        "starts-with",
+		"FilterOp_NOT_PREFIX":    "does-not-start-with",
+		"FilterOp_HAS_VALUE":     "exists",
+		"FilterOp_NOT_HAS_VALUE": "does-not-exist",
+		"FilterOp_CONTAINS":      "contains",
+		"FilterOp_NOT_CONTAINS":  "does-not-contain",
+		"FilterOp_IN_RESULT":     "in-result",
+		"FilterOp_JOIN_RESULT":   "join-result",
+		"FilterOp_IN":            "in",
+		"FilterOp_NOT_IN":        "not-in",
+	}
+	filterOp_fromDisplay = (func() map[string]string {
+		mp := make(map[string]string, len(filterOp_display))
+		for k, v := range filterOp_display {
+			mp[v] = k
+		}
+		return mp
+	}())
+)
+
+func FilterOpFromString(str string) string {
+	if op, ok := filterOp_fromDisplay[str]; ok {
+		return op
+	}
+	return "FilterOp_UNKNOWN"
+}
+
+func QuoteString(str string) string {
+	if strings.Contains(str, "\n") {
+		return "`" + str + "`"
+	}
+	return "\"" + str + "\""
+}
+
+// TODO:
+// - Automatically fetch formulas for AdHocDerivedColumn vars
 func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 
 	if outputFile != "" {
@@ -201,6 +246,10 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 			for _, a := range qt.QuerySpec.Aggregates {
 				tpl += "\t\t\t{\n"
 				tpl += "\t\t\t\tOp: api.AggregateOp_" + a.Op + ",\n"
+				clmn := a.Column
+				if clmn == "" {
+					clmn = "*"
+				}
 				tpl += "\t\t\t\tColumn: " + columnOrVariableName(a.Column, bt.Variables) + ",\n"
 				tpl += "\t\t\t},\n"
 			}
@@ -213,9 +262,11 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 			tpl += "\t\t\tFilters: []*api.QuerySpec_Filter{\n"
 			for _, f := range qt.QuerySpec.FilterSet.Filters {
 				tpl += "\t\t\t\t{\n"
-				tpl += "\t\t\t\t\tOp: api.FilterOpFromString(\"" + f.Op + "\"),\n"
+				tpl += "\t\t\t\t\tOp: api." + FilterOpFromString(f.Op) + ",\n"
 				tpl += "\t\t\t\t\tColumn: " + columnOrVariableName(f.Column, bt.Variables) + ",\n"
-				tpl += "\t\t\t\t\tValue: \"" + fmt.Sprint(f.Value) + "\",\n"
+				if f.Value != nil {
+					tpl += "\t\t\t\t\tValue: \"" + fmt.Sprint(f.Value) + "\",\n"
+				}
 				tpl += "\t\t\t\t},\n"
 			}
 			tpl += "\t\t\t},\n"
@@ -239,7 +290,11 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 			tpl += "\t\tOrders: []*api.QuerySpec_Order{\n"
 			for _, o := range qt.QuerySpec.Orders {
 				tpl += "\t\t\t{\n"
-				tpl += "\t\t\t\tColumn: " + columnOrVariableName(o.Column, bt.Variables) + ",\n"
+				clmn := o.Column
+				if clmn == "" {
+					clmn = "*"
+				}
+				tpl += "\t\t\t\tColumn: " + columnOrVariableName(clmn, bt.Variables) + ",\n"
 				tpl += "\t\t\t\tOp: api.AggregateOp_" + o.Op + ",\n"
 				if o.Order == "descending" {
 					tpl += "\t\t\t\tDescending: true,\n"
@@ -263,7 +318,7 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 				tpl += "\t\t\t{\n"
 				tpl += "\t\t\t\tAggregateOp: api.AggregateOp_" + h.CalculateOp + ",\n"
 				tpl += "\t\t\t\tColumn: " + columnOrVariableName(h.Column, bt.Variables) + ",\n"
-				tpl += "\t\t\t\tOp: api.FilterOp_" + h.Op + ",\n"
+				tpl += "\t\t\t\tOp: api." + FilterOpFromString(h.Op) + ",\n"
 				tpl += "\t\t\t\tValue: \"" + fmt.Sprint(h.Value) + "\",\n"
 				tpl += "\t\t\t\tJoinColumn: \"" + h.JoinColumn + "\",\n"
 				tpl += "\t\t\t},\n"
@@ -276,9 +331,9 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 
 		tpl += "\tqt" + fmt.Sprint(i+1) + " := QueryTemplate{\n"
 
-		tpl += "\t\tName: \"" + qt.Name + "\",\n"
-		tpl += "\t\tShortDescription: \"" + qt.ShortDescription + "\",\n"
-		tpl += "\t\tDescription: \"" + qt.Description + "\",\n"
+		tpl += "\t\tName: " + QuoteString(qt.Name) + ",\n"
+		tpl += "\t\tShortDescription: " + QuoteString(qt.ShortDescription) + ",\n"
+		tpl += "\t\tDescription: " + QuoteString(qt.Description) + ",\n"
 		tpl += "\t\tQuerySpec: qs" + fmt.Sprint(i+1) + ",\n"
 		tpl += "\t\tStyle: types.BoardQueryStyle" + firstLetterToUpper(qt.Style) + ",\n"
 		tpl += "\t\tGraphSettings: types.GraphSettings{\n"
@@ -289,7 +344,7 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 		tpl += "\t\t\tHideMarkers: " + fmt.Sprint(qt.GraphSettings.HideMarkers) + ",\n"
 		tpl += "\t\t\tPreferOverlaidCharts: " + fmt.Sprint(qt.GraphSettings.OverlaidCharts) + ",\n"
 		tpl += "\t\t},\n"
-		tpl += "\t\tAutoFilter: true,\n"
+		tpl += "\t\tAutoFilter: false,\n"
 		tpl += "\t}\n"
 		tpl += "\tqueryTemplates = append(queryTemplates, qt" + fmt.Sprint(i+1) + ")\n"
 		tpl += "\n"
@@ -297,8 +352,8 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 
 	tpl += "\treturn BoardTemplate{\n"
 	tpl += "\t\tPK: ToBoardTemplatePK(" + bt.PK + "),\n"
-	tpl += "\t\tName: \"" + bt.Name + "\",\n"
-	tpl += "\t\tDescription: \"" + bt.Description + "\",\n"
+	tpl += "\t\tName: " + QuoteString(bt.Name) + ",\n"
+	tpl += "\t\tDescription: " + QuoteString(bt.Description) + ",\n"
 	tpl += "\t\tGraphic: " + fmt.Sprint(bt.Graphic) + ",\n"
 	tpl += "\t\tQueryTemplates: queryTemplates,\n"
 	tpl += "\t\tColumnStyle: types.BoardManyColumns,\n"

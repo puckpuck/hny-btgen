@@ -44,7 +44,9 @@ func (c *HoneycombClient) GetBoard(boardId string) (*HoneycombBoard, error) {
 }
 
 func (c *HoneycombClient) GetQuery(dataset string, queryId string) (*HoneycombQuery, error) {
-
+	if dataset == "" {
+		dataset = "__all__"
+	}
 	url := c.baseUrl + "/1/queries/" + dataset + "/" + queryId
 	resp, err := c.client.Get(url)
 	if err != nil {
@@ -61,6 +63,9 @@ func (c *HoneycombClient) GetQuery(dataset string, queryId string) (*HoneycombQu
 }
 
 func (c *HoneycombClient) GetQueryAnnotation(dataset string, queryAnnotationId string) (*HoneycombQueryAnnotation, error) {
+	if dataset == "" {
+		dataset = "__all__"
+	}
 	url := c.baseUrl + "/1/query_annotations/" + dataset + "/" + queryAnnotationId
 	resp, err := c.client.Get(url)
 	if err != nil {
