@@ -250,7 +250,7 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 				if clmn == "" {
 					clmn = "*"
 				}
-				tpl += "\t\t\t\tColumn: " + columnOrVariableName(a.Column, bt.Variables) + ",\n"
+				tpl += "\t\t\t\tColumn: " + columnOrVariableName(clmn, bt.Variables) + ",\n"
 				tpl += "\t\t\t},\n"
 			}
 			tpl += "\t\t},\n"
