@@ -43,6 +43,15 @@ type HoneycombQueryAnnotation struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
+type HoneycombDerivedColumn struct {
+	Id          string `json:"id"`
+	Alias       string `json:"alias"`
+	Expression  string `json:"expression"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
 type QueryVisualization struct {
 	Op     string `json:"op"`
 	Column string `json:"column"`

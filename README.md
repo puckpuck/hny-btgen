@@ -110,3 +110,23 @@ variables:
 ```
 
 The provider kind must be: `ExactMatch`, `SchemaMapping`, or `AdHocDerivedColumn`
+
+To lookup derived column expression automatically, ommit Value in valueProvider (assumes derived column name matches variable name), e.g.:
+
+```json
+{
+  "variables": [
+    {
+      "name": "dc_k8s.pod.uptime.log10",
+      "valueProviders": [
+        {
+          "kind": "AdHocDerivedColumn",
+          "value": ""
+        }
+      ]
+    }
+  ]
+}
+```
+
+This will attempt to lookup expression of a derived column with name dc_k8s.pod.uptime.log10.

@@ -36,19 +36,20 @@ func main() {
 		os.Exit(0)
 	}
 
-	bt, err := convertHoneycombBoardToTemplate()
+	hnyClient := NewHoneycombClient(honeycombApiKey)
+
+	bt, err := convertHoneycombBoardToTemplate(hnyClient)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(2)
 	}
 
 	if variablesFile != "" {
-		variables, err := loadVariables()
+		variables, err := loadVariables(hnyClient)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(3)
 		}
-
 		bt.Variables = variables
 	}
 
@@ -81,13 +82,11 @@ func main() {
 	}
 }
 
-func convertHoneycombBoardToTemplate() (*BoardTemplate, error) {
+func convertHoneycombBoardToTemplate(hnyClient *HoneycombClient) (*BoardTemplate, error) {
 
 	if outputFile != "" {
 		fmt.Println("Loading Honeycomb Board:", boardId)
 	}
-
-	hnyClient := NewHoneycombClient(honeycombApiKey)
 
 	board, err := hnyClient.GetBoard(boardId)
 	if err != nil {
@@ -142,7 +141,7 @@ func convertHoneycombBoardToTemplate() (*BoardTemplate, error) {
 	}, nil
 }
 
-func loadVariables() ([]VariableSpec, error) {
+func loadVariables(hnyClient *HoneycombClient) ([]VariableSpec, error) {
 	if outputFile != "" {
 		fmt.Println("Loading Variables from:", variablesFile)
 	}
@@ -165,13 +164,25 @@ func loadVariables() ([]VariableSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	return variables.Variables, nil
-
+	vars := variables.Variables
+	for _, v := range vars {
+		for i, vp := range v.ValueProviders {
+			if vp.Kind == "AdHocDerivedColumn" && vp.Value == "" {
+				fmt.Println("Attempting to find DC", v.Name)
+				// Attempt to lookup DC automatically
+				dc, err := hnyClient.GetDerivedColumn(v.Name)
+				if err != nil {
+					fmt.Println(err) // Ignore error and generate template with empty expression
+				} else {
+					fmt.Println("Found DC expression:", dc.Expression)
+					v.ValueProviders[i].Value = dc.Expression
+				}
+			}
+		}
+	}
+	return vars, nil
 }
 
-// TODO:
-// - Automatically fetch formulas for AdHocDerivedColumn vars
 func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 
 	if outputFile != "" {

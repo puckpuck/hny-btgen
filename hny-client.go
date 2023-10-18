@@ -80,3 +80,18 @@ func (c *HoneycombClient) GetQueryAnnotation(dataset string, queryAnnotationId s
 
 	return &queryAnnotation, nil
 }
+
+func (c *HoneycombClient) GetDerivedColumn(alias string) (*HoneycombDerivedColumn, error) {
+	url := c.baseUrl + "/1/derived_columns/__all__?alias=" + alias
+	resp, err := c.client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var derivedColumn HoneycombDerivedColumn
+	if err := json.NewDecoder(resp.Body).Decode(&derivedColumn); err != nil {
+		return nil, err
+	}
+	return &derivedColumn, nil
+}
