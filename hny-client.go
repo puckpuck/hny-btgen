@@ -44,7 +44,9 @@ func (c *HoneycombClient) GetBoard(boardId string) (*HoneycombBoard, error) {
 }
 
 func (c *HoneycombClient) GetQuery(dataset string, queryId string) (*HoneycombQuery, error) {
-
+	if dataset == "" {
+		dataset = "__all__"
+	}
 	url := c.baseUrl + "/1/queries/" + dataset + "/" + queryId
 	resp, err := c.client.Get(url)
 	if err != nil {
@@ -61,6 +63,9 @@ func (c *HoneycombClient) GetQuery(dataset string, queryId string) (*HoneycombQu
 }
 
 func (c *HoneycombClient) GetQueryAnnotation(dataset string, queryAnnotationId string) (*HoneycombQueryAnnotation, error) {
+	if dataset == "" {
+		dataset = "__all__"
+	}
 	url := c.baseUrl + "/1/query_annotations/" + dataset + "/" + queryAnnotationId
 	resp, err := c.client.Get(url)
 	if err != nil {
@@ -74,4 +79,19 @@ func (c *HoneycombClient) GetQueryAnnotation(dataset string, queryAnnotationId s
 	}
 
 	return &queryAnnotation, nil
+}
+
+func (c *HoneycombClient) GetDerivedColumn(alias string) (*HoneycombDerivedColumn, error) {
+	url := c.baseUrl + "/1/derived_columns/__all__?alias=" + alias
+	resp, err := c.client.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	var derivedColumn HoneycombDerivedColumn
+	if err := json.NewDecoder(resp.Body).Decode(&derivedColumn); err != nil {
+		return nil, err
+	}
+	return &derivedColumn, nil
 }

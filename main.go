@@ -4,10 +4,11 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"gopkg.in/yaml.v3"
 	"os"
 	"strings"
 	"unicode"
+
+	"gopkg.in/yaml.v3"
 )
 
 var VERSION = "UNKNOWN"
@@ -35,19 +36,20 @@ func main() {
 		os.Exit(0)
 	}
 
-	bt, err := convertHoneycombBoardToTemplate()
+	hnyClient := NewHoneycombClient(honeycombApiKey)
+
+	bt, err := convertHoneycombBoardToTemplate(hnyClient)
 	if err != nil {
 		fmt.Println(err)
 		os.Exit(2)
 	}
 
 	if variablesFile != "" {
-		variables, err := loadVariables()
+		variables, err := loadVariables(hnyClient)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(3)
 		}
-
 		bt.Variables = variables
 	}
 
@@ -80,13 +82,11 @@ func main() {
 	}
 }
 
-func convertHoneycombBoardToTemplate() (*BoardTemplate, error) {
+func convertHoneycombBoardToTemplate(hnyClient *HoneycombClient) (*BoardTemplate, error) {
 
 	if outputFile != "" {
 		fmt.Println("Loading Honeycomb Board:", boardId)
 	}
-
-	hnyClient := NewHoneycombClient(honeycombApiKey)
 
 	board, err := hnyClient.GetBoard(boardId)
 	if err != nil {
@@ -141,7 +141,7 @@ func convertHoneycombBoardToTemplate() (*BoardTemplate, error) {
 	}, nil
 }
 
-func loadVariables() ([]VariableSpec, error) {
+func loadVariables(hnyClient *HoneycombClient) ([]VariableSpec, error) {
 	if outputFile != "" {
 		fmt.Println("Loading Variables from:", variablesFile)
 	}
@@ -164,9 +164,23 @@ func loadVariables() ([]VariableSpec, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	return variables.Variables, nil
-
+	vars := variables.Variables
+	for _, v := range vars {
+		for i, vp := range v.ValueProviders {
+			if vp.Kind == "AdHocDerivedColumn" && vp.Value == "" {
+				fmt.Println("Attempting to find DC", v.Name)
+				// Attempt to lookup DC automatically
+				dc, err := hnyClient.GetDerivedColumn(v.Name)
+				if err != nil {
+					fmt.Println(err) // Ignore error and generate template with empty expression
+				} else {
+					fmt.Println("Found DC expression:", dc.Expression)
+					v.ValueProviders[i].Value = dc.Expression
+				}
+			}
+		}
+	}
+	return vars, nil
 }
 
 func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
@@ -201,7 +215,11 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 			for _, a := range qt.QuerySpec.Aggregates {
 				tpl += "\t\t\t{\n"
 				tpl += "\t\t\t\tOp: api.AggregateOp_" + a.Op + ",\n"
-				tpl += "\t\t\t\tColumn: " + columnOrVariableName(a.Column, bt.Variables) + ",\n"
+				clmn := a.Column
+				if clmn == "" {
+					clmn = "*"
+				}
+				tpl += "\t\t\t\tColumn: " + columnOrVariableName(clmn, bt.Variables) + ",\n"
 				tpl += "\t\t\t},\n"
 			}
 			tpl += "\t\t},\n"
@@ -213,9 +231,11 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 			tpl += "\t\t\tFilters: []*api.QuerySpec_Filter{\n"
 			for _, f := range qt.QuerySpec.FilterSet.Filters {
 				tpl += "\t\t\t\t{\n"
-				tpl += "\t\t\t\t\tOp: api.FilterOpFromString(\"" + f.Op + "\"),\n"
+				tpl += "\t\t\t\t\tOp: api." + FilterOpFromString(f.Op) + ",\n"
 				tpl += "\t\t\t\t\tColumn: " + columnOrVariableName(f.Column, bt.Variables) + ",\n"
-				tpl += "\t\t\t\t\tValue: \"" + fmt.Sprint(f.Value) + "\",\n"
+				if f.Value != nil {
+					tpl += "\t\t\t\t\tValue: " + serializeValue(f.Value) + ",\n"
+				}
 				tpl += "\t\t\t\t},\n"
 			}
 			tpl += "\t\t\t},\n"
@@ -239,7 +259,11 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 			tpl += "\t\tOrders: []*api.QuerySpec_Order{\n"
 			for _, o := range qt.QuerySpec.Orders {
 				tpl += "\t\t\t{\n"
-				tpl += "\t\t\t\tColumn: " + columnOrVariableName(o.Column, bt.Variables) + ",\n"
+				clmn := o.Column
+				if clmn == "" {
+					clmn = "*"
+				}
+				tpl += "\t\t\t\tColumn: " + columnOrVariableName(clmn, bt.Variables) + ",\n"
 				tpl += "\t\t\t\tOp: api.AggregateOp_" + o.Op + ",\n"
 				if o.Order == "descending" {
 					tpl += "\t\t\t\tDescending: true,\n"
@@ -263,8 +287,10 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 				tpl += "\t\t\t{\n"
 				tpl += "\t\t\t\tAggregateOp: api.AggregateOp_" + h.CalculateOp + ",\n"
 				tpl += "\t\t\t\tColumn: " + columnOrVariableName(h.Column, bt.Variables) + ",\n"
-				tpl += "\t\t\t\tOp: api.FilterOp_" + h.Op + ",\n"
-				tpl += "\t\t\t\tValue: \"" + fmt.Sprint(h.Value) + "\",\n"
+				tpl += "\t\t\t\tOp: api." + FilterOpFromString(h.Op) + ",\n"
+				if h.Value != nil {
+					tpl += "\t\t\t\tValue: " + serializeValue(h.Value) + ",\n"
+				}
 				tpl += "\t\t\t\tJoinColumn: \"" + h.JoinColumn + "\",\n"
 				tpl += "\t\t\t},\n"
 			}
@@ -276,9 +302,9 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 
 		tpl += "\tqt" + fmt.Sprint(i+1) + " := QueryTemplate{\n"
 
-		tpl += "\t\tName: \"" + qt.Name + "\",\n"
-		tpl += "\t\tShortDescription: \"" + qt.ShortDescription + "\",\n"
-		tpl += "\t\tDescription: \"" + qt.Description + "\",\n"
+		tpl += "\t\tName: " + quoteString(qt.Name) + ",\n"
+		tpl += "\t\tShortDescription: " + quoteString(qt.ShortDescription) + ",\n"
+		tpl += "\t\tDescription: " + quoteString(qt.Description) + ",\n"
 		tpl += "\t\tQuerySpec: qs" + fmt.Sprint(i+1) + ",\n"
 		tpl += "\t\tStyle: types.BoardQueryStyle" + firstLetterToUpper(qt.Style) + ",\n"
 		tpl += "\t\tGraphSettings: types.GraphSettings{\n"
@@ -289,7 +315,7 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 		tpl += "\t\t\tHideMarkers: " + fmt.Sprint(qt.GraphSettings.HideMarkers) + ",\n"
 		tpl += "\t\t\tPreferOverlaidCharts: " + fmt.Sprint(qt.GraphSettings.OverlaidCharts) + ",\n"
 		tpl += "\t\t},\n"
-		tpl += "\t\tAutoFilter: true,\n"
+		tpl += "\t\tAutoFilter: false,\n"
 		tpl += "\t}\n"
 		tpl += "\tqueryTemplates = append(queryTemplates, qt" + fmt.Sprint(i+1) + ")\n"
 		tpl += "\n"
@@ -297,8 +323,8 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 
 	tpl += "\treturn BoardTemplate{\n"
 	tpl += "\t\tPK: ToBoardTemplatePK(" + bt.PK + "),\n"
-	tpl += "\t\tName: \"" + bt.Name + "\",\n"
-	tpl += "\t\tDescription: \"" + bt.Description + "\",\n"
+	tpl += "\t\tName: " + quoteString(bt.Name) + ",\n"
+	tpl += "\t\tDescription: " + quoteString(bt.Description) + ",\n"
 	tpl += "\t\tGraphic: " + fmt.Sprint(bt.Graphic) + ",\n"
 	tpl += "\t\tQueryTemplates: queryTemplates,\n"
 	tpl += "\t\tColumnStyle: types.BoardManyColumns,\n"
@@ -352,6 +378,33 @@ func firstLetterToUpper(s string) string {
 	r[0] = unicode.ToUpper(r[0])
 
 	return string(r)
+}
+
+func quoteString(str string) string {
+	if strings.Contains(str, "\n") {
+		return "`" + str + "`"
+	}
+	return "\"" + str + "\""
+}
+
+func serializeValue(val any) string {
+	str := ""
+	switch v := val.(type) {
+	case []interface{}:
+		vals := []string{}
+		for _, v := range v {
+			if v != nil {
+				vals = append(vals, quoteString(fmt.Sprint(v)))
+			}
+		}
+		str = strings.Join(vals, ",")
+		str = "[]any{" + str + "}"
+	case string:
+		str = quoteString(fmt.Sprint(val))
+	default:
+		str = fmt.Sprint(val)
+	}
+	return str
 }
 
 func validateOptions() error {

@@ -43,6 +43,15 @@ type HoneycombQueryAnnotation struct {
 	UpdatedAt   string `json:"updated_at"`
 }
 
+type HoneycombDerivedColumn struct {
+	Id          string `json:"id"`
+	Alias       string `json:"alias"`
+	Expression  string `json:"expression"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
+}
+
 type QueryVisualization struct {
 	Op     string `json:"op"`
 	Column string `json:"column"`
@@ -70,7 +79,7 @@ type QueryHaving struct {
 	CalculateOp string `json:"calculate_op"`
 	Column      string `json:"column"`
 	Op          string `json:"op"`
-	Value       int    `json:"value"`
+	Value       any    `json:"value"`
 	JoinColumn  string `json:"join_column,omitempty"`
 }
 
@@ -125,4 +134,39 @@ type VariableSpec struct {
 
 type VariablesDefinition struct {
 	Variables []VariableSpec `json:"variables" yaml:"variables"`
+}
+
+var (
+	filterOp_display = map[string]string{
+		"FilterOp_EQUAL":         "=",
+		"FilterOp_NOT_EQUAL":     "!=",
+		"FilterOp_GT":            ">",
+		"FilterOp_GTE":           ">=",
+		"FilterOp_LT":            "<",
+		"FilterOp_LTE":           "<=",
+		"FilterOp_PREFIX":        "starts-with",
+		"FilterOp_NOT_PREFIX":    "does-not-start-with",
+		"FilterOp_HAS_VALUE":     "exists",
+		"FilterOp_NOT_HAS_VALUE": "does-not-exist",
+		"FilterOp_CONTAINS":      "contains",
+		"FilterOp_NOT_CONTAINS":  "does-not-contain",
+		"FilterOp_IN_RESULT":     "in-result",
+		"FilterOp_JOIN_RESULT":   "join-result",
+		"FilterOp_IN":            "in",
+		"FilterOp_NOT_IN":        "not-in",
+	}
+	filterOp_fromDisplay = (func() map[string]string {
+		mp := make(map[string]string, len(filterOp_display))
+		for k, v := range filterOp_display {
+			mp[v] = k
+		}
+		return mp
+	}())
+)
+
+func FilterOpFromString(str string) string {
+	if op, ok := filterOp_fromDisplay[str]; ok {
+		return op
+	}
+	return "FilterOp_UNKNOWN"
 }
