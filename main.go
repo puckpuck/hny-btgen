@@ -264,7 +264,9 @@ func generateTemplateGoCode(bt *BoardTemplate) (string, error) {
 					clmn = "*"
 				}
 				tpl += "\t\t\t\tColumn: " + columnOrVariableName(clmn, bt.Variables) + ",\n"
-				tpl += "\t\t\t\tOp: api.AggregateOp_" + o.Op + ",\n"
+				if o.Op != "" {
+					tpl += "\t\t\t\tOp: api.AggregateOp_" + o.Op + ",\n"
+				}
 				if o.Order == "descending" {
 					tpl += "\t\t\t\tDescending: true,\n"
 				} else {
@@ -381,7 +383,7 @@ func firstLetterToUpper(s string) string {
 }
 
 func quoteString(str string) string {
-	if strings.Contains(str, "\n") {
+	if strings.Contains(str, "\n") || strings.Contains(str, "\"") {
 		return "`" + str + "`"
 	}
 	return "\"" + str + "\""

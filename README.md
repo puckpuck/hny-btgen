@@ -36,6 +36,10 @@ or as an environment variable.
 | --sequence-number   |                      | Sequence # to use for board template, needs to be unique     | `99999` |
 | --version           |                      | Display version information                                  | `false` |
 
+**Note:** you can ommit --sequence-number and use default value 99999. You will be 
+prompted to update this when adding template in hound. Automatic template validation
+will suggest next value to be used.
+
 ## Variables
 
 You can specify a file with variable column mappings. The file can be in 
